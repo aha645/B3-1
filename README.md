@@ -160,14 +160,6 @@ AWS 콘솔(서울 리전) → **VPC → 서브넷(Subnets) → 서브넷 생성(
 | 서브넷 상태 | `Available` |
 | 퍼블릭 IPv4 자동 할당 | **예 (2026-11-05 화면으로 확인)** |
 
-**현재까지 검증된 사항:** 서브넷 생성과 VPC 연결은 정상이다. 추가 스크린샷에서 **퍼블릭 IPv4 자동 할당: 예**로 변경되었음을 확인했다. 이제 IGW 및 Route Table 구성을 진행한다.
-
-실제 스크린샷 파일 `04-subnet.png`를 받았다. GitHub의 `images/04-subnet.png`에 별도 업로드가 필요하다 (README만 수정해도 이미지 파일이 업로드되는 것은 아니다).
-
-- [x] 서브넷 생성 완료
-- [x] 퍼블릭 IPv4 자동 할당 설정 확인
-- [ ] 스크린샷 저장
-
 # 5. Internet Gateway 생성과 VPC 연결
 
 1. **VPC → 인터넷 게이트웨이(Internet gateways) → 인터넷 게이트웨이 생성**을 선택한다.
@@ -178,11 +170,8 @@ AWS 콘솔(서울 리전) → **VPC → 서브넷(Subnets) → 서브넷 생성(
 
 **왜 필요한가?** Internet Gateway는 인터넷과 VPC 간에 왕복 통신이 가능하도록 연결하는 관문이다. 단, IGW 연결만으로 외부 접속이 보장되지는 않는다. 라우팅과 보안 그룹도 맞아야 한다.
 
-**증빙:** VPC에 연결된 IGW 화면을 `images/05-igw.png`로 저장한다.
-
-- [ ] IGW 생성
-- [ ] `web-lab-vpc`에 연결
-- [ ] 스크린샷 저장
+**증빙:** 
+![VPC에 연결된 IGW 화면](images/05-igw.png)
 
 # 6. Public Route Table 생성과 서브넷 연결
 
@@ -201,12 +190,10 @@ AWS 콘솔(서울 리전) → **VPC → 서브넷(Subnets) → 서브넷 생성(
 
 **왜 필요한가?** IGW를 만들더라도 서브넷에서 사용하는 라우팅 테이블에 인터넷 기본 경로가 없으면 EC2가 이 경로로 인터넷에 나갈 수 없다. 이 연결이 있어야 서브넷을 Public Subnet으로 사용할 수 있다.
 
-**증빙:** Routes 탭과 Subnet associations 탭을 `images/06-routes.png`와 `images/07-subnet-association.png`로 캡처한다.
+**증빙:** 
+![Routes 탭](images/06-routes.png)
+![Subnet associations 탭](images/07-subnet-association.png)
 
-- [ ] 라우팅 테이블 생성
-- [ ] `0.0.0.0/0 → IGW` 설정
-- [ ] Public Subnet 연결
-- [ ] 스크린샷 저장
 
 # 7. Security Group 생성
 
