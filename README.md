@@ -223,9 +223,9 @@ AWS 콘솔 → **EC2 → 인스턴스(Instances) → 인스턴스 시작(Launch 
 | 항목 | 설정 |
 |---|---|
 | 이름 | `web-lab-ec2` |
-| AMI | Ubuntu Server LTS (선택한 버전 기록) |
-| 인스턴스 유형 | 계정에 표시된 프리 티어/크레딧 조건 확인 후 micro 계열 1대 |
-| 키페어 | 새 키페어 `web-lab-key` 생성, `.pem` 안전 보관 |
+| AMI | Ubuntu Server LTS (24.04) |
+| 인스턴스 유형 | t3.micro(프리티어사용가능) 1대 |
+| 키페어 | 새 키페어 `web-lab-key` 생성, `web-lab-key.pem` 안전 보관 |
 | VPC | `web-lab-vpc` |
 | Subnet | `web-lab-public-subnet` |
 | 퍼블릭 IP 자동 할당 | 활성화 |
@@ -237,13 +237,13 @@ AWS 콘솔 → **EC2 → 인스턴스(Instances) → 인스턴스 시작(Launch 
 
 생성 후 **Running**, 상태 검사 통과, **Public IPv4 address 존재**, VPC/Subnet/SG 일치를 확인한다. 공인 IP와 인스턴스 ID는 README의 '실제 검증 결과'에 기록한다(스크린샷에서는 필요한 정보만 공개).
 
-**증빙:** EC2 요약을 `images/09-ec2-running.png`로 저장한다.
-
-- [ ] EC2 실행 중
-- [ ] 퍼블릭 IPv4 존재
-- [ ] VPC / Subnet / SG 일치
-- [ ] 스크린샷 저장
-
+**증빙:** 
+VPC / Subnet / SG 일치
+![VPC / Subnet / SG 일치](images/08-security-group.png)
+EC2 실행 상태 보기
+![EC2 실행 중](images/08-instance-start-result.png)
+퍼블릭 IPv4존재
+![EC2 instance 요약정보](images/08-instance-info.png)
 # 9. SSH 접속 및 Nginx 설치
 
 ## STEP 1. 내 컴퓨터(macOS/Linux)의 터미널에서 SSH 접속
