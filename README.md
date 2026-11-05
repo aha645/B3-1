@@ -145,7 +145,8 @@ AWS 콘솔(서울 리전) → **VPC → 서브넷(Subnets) → 서브넷 생성(
 
 **생성 후 작업:** 서브넷 선택 → **작업(Actions) → 서브넷 설정 편집(Edit subnet settings)** → **퍼블릭 IPv4 자동 할당(Enable auto-assign public IPv4 address)** 활성화 후 저장. 이 설정과 함께 EC2 생성 시 자동 할당 옵션도 확인한다. 공인 IPv4는 과금될 수 있다.
 
-**확인 및 증빙:** 서브넷 ID, VPC ID, CIDR, 자동 할당 설정 화면을 캡처해서 `images/04-subnet.png`로 저장한다.
+**확인 및 증빙:** 서브넷 ID, VPC ID, CIDR, 자동 할당 설정 화면
+![서브넷 ID, VPC ID, CIDR, 자동 할당 설정 화면](images/04-subnet.png)
 
 ### 실제 AWS 화면 확인 (2026-11-05)
 
