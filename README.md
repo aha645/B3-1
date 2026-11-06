@@ -730,3 +730,136 @@ EC2 종료 후 EBS 볼륨 목록에서 **현재 이 리전에 볼륨이 없습�
 웹 서비스 배포, 내부·외부 통신 검증, 아키텍처 다이어그램, 트러블슈팅 보고서와 주요 리소스 정리 기록을 작성했다. EC2 종료 및 VPC 삭제로 기존 공개 URL은 더 이상 실습 서비스의 접속 주소로 사용하지 않는다.
 
 주요 정리 결과와 근거는 [리소스 정리 체크리스트](docs/cleanup-checklist.md)에 기록했다.
+
+# 14. AWS CLI 자동화 스크립트 사용법
+
+수동 실습의 VPC 생성부터 EC2·Docker Nginx 배포, 내부·외부 검증, 리소스 정리를 [scripts/web-lab.py](scripts/web-lab.py)로 실행할 수 있다. EC2 최초 부팅 시 [user-data.sh](scripts/user-data.sh)가 Docker와 웹페이지를 설치한다. **스크립트 작성 후 실제 AWS 배포는 실행하지 않았다.**
+
+### 준비 1. 로컬 Mac에서 프로젝트 열기
+
+아래 명령은 삭제된 EC2가 아니라 **Mac 터미널**에서 실행한다. 프로젝트 경로가 다르면 실제 경로로 변경한다.
+
+```bash
+cd ~/Documents/B3-1
+aws --version
+python3 --version
+ssh -V
+```
+
+AWS CLI v2, Python 3.9 이상, OpenSSH가 필요하다. AWS CLI가 없다면 [공식 설치 안내](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)에 따라 설치한다.
+
+### 준비 2. IAM 사용자/Role의 AWS CLI 프로필 설정
+
+이 스크립트는 기존 IAM 사용자와 정책을 사용하며, IAM 사용자를 새로 만들거나 권한을 확대하지 않는다. 처음 준비하는 계정은 README 1~2번을 먼저 수행한다. 현재 실습 사용자의 콘솔 로그인 비밀번호는 CLI 인증에 사용할 수 없다.
+
+`web-lab-user`의 액세스 키를 사용하는 경우, 자격 증명 관리 권한이 있는 계정에서 **IAM → 사용자 → web-lab-user → 보안 자격 증명 → 액세스 키 생성**으로 키를 준비한다. 키는 로컬 설정에만 입력하고 README·코드·채팅·Git에 넣지 않는다. 기존 SSO/Role 인증 환경이 있다면 해당 프로필을 사용해도 된다.
+
+```bash
+aws configure --profile web-lab
+```
+
+입력 항목은 다음과 같다. 아래는 실제 출력 기록이 아닌 입력 형식 예시다.
+
+```text
+AWS Access Key ID: IAM 사용자의 Access Key ID
+AWS Secret Access Key: 해당 Secret Access Key
+Default region name: ap-northeast-2
+Default output format: json
+```
+
+설정한 프로필로 로그인 주체를 확인한다.
+
+```bash
+aws sts get-caller-identity --profile web-lab
+```
+
+출력의 `Account`와 `Arn`을 확인한다. IAM 사용자 방식이라면 ARN 끝이 `user/web-lab-user`여야 한다. 스크립트는 루트 자격 증명 실행을 거부한다. 이후 명령에서 계속 같은 프로필을 사용한다.
+
+필요한 권한은 README의 EC2/VPC 실습 정책을 기준으로 한다. `ec2:GetSecurityGroupsForVpc` 보완 내용은 트러블슈팅 보고서에 기록했다. AMI는 Canonical 공식 계정의 Ubuntu 24.04 amd64 이미지를 `DescribeImages`로 검색하므로 SSM 권한을 추가하지 않는다.
+
+### 준비 3. SSH를 허용할 내 공인 IPv4 확인
+
+Mac에서 다음 명령으로 현재 공인 IPv4를 확인한다.
+
+```bash
+curl -4 https://checkip.amazonaws.com
+```
+
+출력된 주소 뒤에 `/32`를 붙여 `--ssh-cidr`에 입력한다. 예를 들어 실제 출력이 `203.0.113.10`이라면 아래 형식으로 입력한다. 이 주소는 설명용이며 반드시 본인 주소로 바꿔야 한다. SSH에 `0.0.0.0/0`을 넣으면 스크립트가 거부한다.
+
+### 1. 리소스 생성 및 자동 배포
+
+```bash
+aws sts get-caller-identity --profile web-lab
+python3 scripts/web-lab.py create --profile web-lab --ssh-cidr 203.0.113.10/32
+```
+
+고정 서울 리전에 VPC `10.0.0.0/16`, Public Subnet `10.0.1.0/24`(`ap-northeast-2a`), IGW, 라우팅 테이블, SG, 키페어, `t3.micro` EC2 1대를 생성한다. HTTP 80은 전체 허용, SSH 22는 지정한 IPv4 `/32`만 허용한다. 루트 EBS는 gp3 8 GiB이며 종료 시 삭제한다. Elastic IP·NAT Gateway·로드 밸런서는 생성하지 않는다.
+
+실제 실행 시 EC2·EBS·공인 IPv4 등의 비용이 발생할 수 있으며 계정별 무료 혜택을 보장하지 않는다. 생성 ID와 PEM은 Git에서 제외한 `.web-lab/`에 저장한다. 생성 중 오류가 나도 상태 파일을 보존하므로, `create`를 반복하지 말고 원인을 확인하거나 `cleanup`을 실행한다. 동일 작업 폴더에서 동시에 여러 실행을 하지 않는다.
+
+### 2. 내부·외부 검증
+
+EC2 실행 완료 후에도 Docker 초기 설치에 몇 분이 걸릴 수 있다. SSH 연결 준비 후 다음을 실행한다.
+
+```bash
+python3 scripts/web-lab.py verify --profile web-lab
+```
+
+SSH로 `cloud-init` 완료를 기다린 뒤 `docker ps`, localhost 웹페이지와 `/health`, 외부 HTTPS 아웃바운드를 확인한다. 로컬 컴퓨터에서도 공인 IP의 `/health`를 호출해 HTTP 200 및 본문 `OK`를 검사한다. SSH 준비 전 연결 오류가 발생하면 잠시 후 `verify`를 다시 실행한다.
+
+첫 SSH 호스트 키는 `accept-new`로 로컬 known_hosts에 등록하고, 기존 키와 다르면 접속을 거부한다. 설치 실패 원인은 EC2의 `/var/log/cloud-init-output.log`에서 확인한다. 웹 소스는 기존과 동일하게 `/home/ubuntu/web-lab/html`을 수정한다.
+
+### 직접 SSH 접속하고 페이지 수정하기
+
+자동 생성된 공인 IP와 키 경로를 상태 파일에서 읽어 SSH로 접속한다.
+
+```bash
+LAB_IP=$(python3 -c 'import json; print(json.load(open(".web-lab/state.json"))["public_ip"])')
+LAB_KEY=$(python3 -c 'import json; print(json.load(open(".web-lab/state.json"))["key_file"])')
+ssh -i "$LAB_KEY" "ubuntu@$LAB_IP"
+```
+
+접속 후 EC2에서 웹페이지를 수정한다.
+
+```bash
+nano /home/ubuntu/web-lab/html/index.html
+```
+
+저장하면 바인드 마운트를 통해 다음 요청부터 반영된다. `exit`로 Mac 터미널로 돌아온 뒤 외부에서 확인한다.
+
+```bash
+curl -i "http://$LAB_IP/health"
+```
+
+### 3. 리소스 정리
+
+```bash
+python3 scripts/web-lab.py cleanup --profile web-lab
+```
+
+화면의 계정과 VPC를 확인하고 `DELETE`를 입력하면 **상태 파일에 기록한 리소스**를 종료·삭제한다. 생성 당시 계정·프로필·리전과 다르면 작업을 중단한다. EC2 종료 후 추적한 EBS 잔존 여부를 확인하고, 연결 해제 → Subnet → Route Table → SG → IGW 분리·삭제 → VPC → AWS 키페어 순서로 정리한다.
+
+오류가 발생하면 남은 상태를 보존한다. 상태 파일과 실제 리소스를 확인한 후 `cleanup`을 다시 실행한다. 콘솔에서 이미 수동 삭제한 리소스는 자동으로 무시하지 않으므로, 이 경우 실제 상태와 상태 파일을 먼저 대조해야 한다. `.web-lab/`는 정리 완료 전 삭제하지 않는다.
+
+완료 기록은 `.web-lab/cleaned-<실행ID>.json`으로 남기며 로컬 PEM은 자동 삭제하지 않는다. 스크립트 밖에서 만든 리소스, 스냅샷, Billing, IAM 사용자·정책은 별도로 확인한다. 과거 수동 실습에서 사용한 공인 IP는 재사용하지 않고 새로 생성된 IP를 사용한다.
+
+### 실행 중 문제가 생겼을 때
+
+- `Unable to locate credentials`: AWS CLI 프로필 설정·인증 상태를 확인한다.
+- `AccessDenied` / `UnauthorizedOperation`: 오류의 작업명을 실제 IAM 정책과 비교한다. 실습 사용자에게 관리자 권한을 일괄 부여하지 않는다.
+- `상태 파일이 이미 있습니다`: 기존 실행 기록이 있으므로 생성부터 반복하지 않고 `verify` 또는 `cleanup`을 사용한다.
+- SSH 연결 실패: EC2 부팅 완료 여부와 실행 시 지정한 공인 IP `/32`가 현재 Mac의 공인 IP와 같은지 확인한다.
+- Docker 설치 실패: EC2에서 `sudo tail -n 100 /var/log/cloud-init-output.log`로 원인을 확인한다.
+- `cleanup` 실패: 오류를 확인하고 `.web-lab/state.json`을 보존한다. 수동으로 상태 파일의 ID를 다른 리소스 ID로 바꾸지 않는다.
+
+### 로컬 검증
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_*.py'
+bash -n scripts/user-data.sh
+```
+
+AWS 호출을 모의 처리하여 SSH 전체 공개 차단, 생성 중 실패 시 VPC ID 보존, 추적 대상만 삭제하는 흐름을 검증한다. 실제 AWS 통합 배포 검증을 대신하지는 않는다.
+
+참고: [AWS CLI VPC 구성 및 정리](https://docs.aws.amazon.com/vpc/latest/userguide/getting-started-with-amazon-vpc-using-the-aws-cli.html), [EC2 user data](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/user-data.html), [Canonical Ubuntu AMI 검색](https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/).
