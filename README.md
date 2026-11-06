@@ -1,3 +1,7 @@
+# AWS 웹 서비스 배포 실습
+
+서울 리전(`ap-northeast-2`)의 Public Subnet에 EC2를 배치하고, Docker Nginx로 정적 웹페이지를 배포했다. **외부 접속 검증 방식은 B(`GET /health`)**이며, 2026-11-06 12:03:16 KST에 외부 iMac에서 `200 OK`와 본문 `OK`를 확인했다. 아래 결과는 직접 수행하여 제공한 터미널 로그를 기준으로 기록했다. 실행 및 접속 증빙은 터미널 로그로 기록하며, 아키텍처 다이어그램은 Mermaid와 PNG로 작성했으며, IAM 권한 검토와 리소스 정리는 남아 있다.
+
 # 1. IAM->정책->정책생성
 정책 편집기에서 (JSON으로 선택후) 아래내용 붙여넣음
 ```
@@ -121,9 +125,9 @@ VPC가 정상적으로 생성되면 상태가 Available로 나타납니다.
 ![VPC생성 화면](/images/VPC_VPC_VPC생성.png)
 ---
 
-# 4. Public Subnet 생성 (다음에 수행할 작업)
+# 4. Public Subnet 생성
 
-> **진행 상태: 미검증 / 아직 완료 처리하지 않음**
+> **진행 상태: 서브넷 생성 및 퍼블릭 IPv4 자동 할당 확인 (아래 기록 참조)**
 >
 > 앞에서 생성한 VPC 정보: 이름 `web-lab-vpc`, ID `vpc-0c62583f604f44241`, IPv4 CIDR `10.0.0.0/16`, 리전 `ap-northeast-2`.
 >
@@ -244,159 +248,374 @@ EC2 실행 상태 보기
 ![EC2 실행 중](images/08-instance-start-result.png)
 퍼블릭 IPv4존재
 ![EC2 instance 요약정보](images/08-instance-info.png)
-# 9. SSH 접속 및 Nginx 설치
+# 9. SSH 접속 및 Docker Nginx 배포
 
-## STEP 1. 내 컴퓨터(macOS/Linux)의 터미널에서 SSH 접속
-
-키페어를 `~/Downloads/web-lab-key.pem`에 저장했다고 가정한다. 실제 파일 위치를 사용한다.
+## STEP 1. Mac에서 SSH 접속
 
 ```bash
-chmod 400 ~/Downloads/web-lab-key.pem
-ssh -i ~/Downloads/web-lab-key.pem ubuntu@<PUBLIC_IP>
+chmod 400 ~/Documents/web-lab-key.pem
+ssh -i ~/Documents/web-lab-key.pem ubuntu@54.180.230.112
 ```
 
-- `chmod 400`: 개인 키를 소유자만 읽도록 제한한다.
-- `ssh -i`: 지정한 키로 원격 EC2에 접속한다.
-- `ubuntu`: Ubuntu AMI에서 사용하는 일반적인 로그인 계정명이다.
-- `<PUBLIC_IP>`: EC2 화면의 실제 Public IPv4로 교체한다. 꺾쇠까지 입력하지 않는다.
+개인 키 권한 `0644`로 접속에 실패했으나 `0400`으로 변경한 후 접속에 성공했다. 상세 오류·조치·성공 로그는 [트러블슈팅 보고서](docs/troubleshooting.md)에 기록했다.
 
-처음 접속할 때 호스트 키 지문을 확인한 후 승인한다.
+## STEP 2. Docker 설치
 
-## STEP 2. SSH로 접속한 EC2 Ubuntu 터미널에서 실행
+Docker 공식 저장소를 등록하기 위해 인증서와 curl을 설치하고 서명 키를 저장한다. 설치 과정의 원본 출력은 별도로 제공되지 않았으므로 아래는 실행 명령을 기록한다.
 
 ```bash
 sudo apt update
-sudo apt install -y nginx
-sudo systemctl enable --now nginx
-sudo systemctl status nginx
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 ```
 
-- `apt update`: 패키지 목록을 갱신한다.
-- `apt install -y nginx`: 웹 서버를 설치한다.
-- `systemctl enable --now nginx`: 지금 시작하고 부팅 시 자동 시작을 설정한다.
-- `systemctl status nginx`: `active (running)` 여부를 확인한다.
-
-HTTP 200 응답을 확인한다.
+Ubuntu 24.04(`noble`), x86_64(`amd64`) 환경에 맞는 Docker 공식 APT 저장소를 등록한다.
 
 ```bash
-curl -i http://localhost
-```
-
-**성공 조건:** 실제 응답 상태 줄에 `HTTP/1.1 200 OK` 등의 200 응답이 표시된다.
-
-EC2에서 외부 인터넷으로 나가는지도 확인한다.
-
-```bash
-curl -I https://example.com
-```
-
-**성공 조건:** DNS 및 HTTPS 연결에 성공하고 HTTP 응답 헤더를 수신한다. 이 테스트는 EC2의 **아웃바운드** 통신 검증이다.
-
-**증빙:** `images/10-nginx-localhost.png`, `images/11-outbound.png`.
-
-- [ ] SSH 접속 성공
-- [ ] Nginx running 확인
-- [ ] localhost HTTP 200 확인
-- [ ] 아웃바운드 HTTPS 통신 성공
-- [ ] 스크린샷 저장
-
-# 10. 웹페이지 배포 및 외부 접속 확인
-
-## STEP 1. EC2에서 테스트 페이지 만들기
-
-```bash
-sudo tee /var/www/html/index.html >/dev/null <<'EOF'
-<!doctype html>
-<html lang="ko">
-<head><meta charset="utf-8"><title>AWS Web Lab</title></head>
-<body><h1>Hello Cloud</h1><p>EC2 + Nginx 웹 서비스</p></body>
-</html>
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<'EOF'
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: noble
+Components: stable
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 ```
 
-`tee`는 입력을 웹 루트의 HTML 파일에 저장하고, `EOF`는 여러 줄 입력의 시작과 끝을 구분한다.
-
-정적 HTML/CSS/JavaScript 웹사이트가 이미 있다면 로컬 컴퓨터에서 `scp`로 전송한 다음, EC2에서 `/var/www/html/`에 복사할 수 있다. React/Vite라면 먼저 빌드한 산출물을 올려야 하며 백엔드 웹서비스는 별도 실행/프록시 설정이 필요하다.
-
-## STEP 2. health 응답 만들기 (제출 방식 B)
+패키지 목록을 갱신한 뒤 Docker Engine, Buildx, Compose 플러그인을 설치하고 Docker 서비스를 실행한다.
 
 ```bash
-echo OK | sudo tee /var/www/html/health
-curl -i http://localhost/health
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
 ```
 
-## STEP 3. EC2 외부의 **내 컴퓨터 터미널**에서 확인
+## STEP 3. Docker 설치 확인
+
+호스트에는 Nginx 패키지를 설치하지 않고, Docker 컨테이너로 실행했다. Docker 공식 APT 저장소를 등록해 Engine과 Compose 플러그인을 설치했다. 다음 명령은 **EC2 Ubuntu 터미널**에서 실행한다.
+
+Docker Engine의 Client와 Server 버전을 확인한다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ sudo docker version
+Client: Docker Engine - Community
+ Version:           29.9.3
+ API version:       1.56
+ Go version:        go1.26.10
+ Git commit:        5457199
+ Built:             Tue Nov  3 21:41:31 2026
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.9.3
+  API version:      1.56 (minimum version 1.40)
+  Go version:       go1.26.10
+  Git commit:       70efc0e
+  Built:            Tue Nov  3 21:41:31 2026
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.4.2
+  GitCommit:        b7a25261e029d68978bbf290df0a62fc819b3c51
+ runc:
+  Version:          1.5.2
+  GitCommit:        v1.5.2-0-g29dd3dc2
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+```
+
+Docker Compose 설치 버전을 확인한다. 이번 배포는 Compose 대신 `docker run`을 사용했다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ sudo docker compose version
+Docker Compose version v5.7.0
+```
+
+Docker 서비스가 실행 중인지 확인한다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ systemctl is-active docker
+active
+```
+
+Client와 Server 버전이 모두 출력되고 서비스 상태가 `active`이므로 Docker 설치 및 실행을 확인했다.
+
+## STEP 4. EC2 웹페이지 폴더 준비
+
+웹페이지를 EC2에서 직접 수정할 수 있도록 폴더를 만들고, HTML 페이지와 고정 응답 `OK`를 반환할 health 파일을 작성한다. 아래는 파일 생성 명령이다.
 
 ```bash
-curl -i http://<PUBLIC_IP>/health
+mkdir -p /home/ubuntu/web-lab/html
+
+cat > /home/ubuntu/web-lab/html/index.html <<'EOF'
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>AWS Web Lab</title>
+</head>
+<body>
+  <h1>Hello Cloud</h1>
+  <p>Docker Nginx로 서비스 중입니다.</p>
+</body>
+</html>
+EOF
+
+echo OK > /home/ubuntu/web-lab/html/health
 ```
 
-- **방법 B 선택:** HTTP 상태가 `200 OK`이고 응답 본문이 `OK`이면 성공.
-- 브라우저에서 `http://<PUBLIC_IP>`를 열어 `Hello Cloud`가 표시되는 방법 A로도 확인할 수 있다.
-- **주의:** localhost 테스트만으로는 외부 공개를 증명할 수 없다. 반드시 EC2와 다른 컴퓨터/네트워크에서 확인한다.
+## STEP 5. 바인드 마운트로 Nginx 실행
 
-**외부 접속 증빙:** URL을 포함한 명령과 응답 화면 또는 브라우저 주소창과 페이지를 `images/12-external-health.png`로 저장한다. 실제 성공 전에는 결과를 '성공'이라고 기록하지 않는다.
+EC2의 웹페이지 폴더를 컨테이너 웹 루트에 읽기 전용으로 연결하고, 호스트 80번 포트로 요청을 받도록 Nginx를 실행한다. 아래는 실제 실행 명령과 이미지 다운로드 결과다.
 
-- [ ] EC2 내부 `/health` 정상
-- [ ] 외부 PC의 `/health` 200 및 OK 확인
-- [ ] 스크린샷 저장
+```text
+ubuntu@ip-10-0-1-117:~$ sudo docker run -d \
+  --name web-lab-nginx \
+  --restart unless-stopped \
+  -p 80:80 \
+  --mount type=bind,source=/home/ubuntu/web-lab/html,target=/usr/share/nginx/html,readonly \
+  nginx:stable
+Unable to find image 'nginx:stable' locally
+stable: Pulling from library/nginx
+2fc2bc44a8d3: Pull complete
+37fb86c2a767: Pull complete
+b532f9701850: Pull complete
+f7214361b33f: Pull complete
+cbbdc282ecf5: Pull complete
+9c0452afd4ee: Pull complete
+89e2dd8a6236: Pull complete
+1e24db3ea44b: Download complete
+47835a5e6782: Download complete
+Digest: sha256:42c68eab6f7e22611786a9fe1d1c019e275c50185bd54b8f75dc2b9184322703
+Status: Downloaded newer image for nginx:stable
+3a5ae8a1a592d79d3d2a53fd73de55e986590a3d537a781d3be65826d385f8d4
+```
 
-## 실제 검증 결과 기록 (직접 수행 후 입력)
+위 명령은 최초 생성 시 사용한 명령이다. 같은 이름의 컨테이너가 이미 실행 중이면 다시 실행하지 않는다.
+
+| 항목 | 실제 구성 |
+|---|---|
+| 이미지 | `nginx:stable` |
+| 이미지 Digest | `sha256:42c68eab6f7e22611786a9fe1d1c019e275c50185bd54b8f75dc2b9184322703` |
+| 응답 서버 버전 | `nginx/1.30.6` |
+| 컨테이너 | `web-lab-nginx` (`3a5ae8a1a592`) |
+| 포트 매핑 | EC2 TCP 80 → 컨테이너 TCP 80 |
+| EC2 웹페이지 폴더 | `/home/ubuntu/web-lab/html` |
+| 컨테이너 웹 루트 | `/usr/share/nginx/html` |
+| 마운트 권한 | 컨테이너에서 읽기 전용 (`readonly`) |
+| 재시작 정책 | `unless-stopped` |
+
+EC2 폴더 안의 정적 파일을 수정하면 컨테이너 재시작 없이 다음 요청에 반영된다. Mac의 파일을 수정한 경우에는 EC2 폴더에 전송해야 한다. React/Vite 프로젝트는 빌드 결과물을 배포한다.
+
+트래픽은 Internet Gateway를 통해 EC2에 도달하고, 보안 그룹의 HTTP 80 허용 규칙과 Docker의 `80:80` 매핑을 거쳐 컨테이너로 전달된다. Docker 사용을 위해 기존 VPC/Subnet/Route Table을 변경하거나 추가 포트를 공개하지 않았다.
+
+# 10. 내부·외부 접속 검증 결과
+
+## STEP 1. EC2 내부 검증
+
+컨테이너 실행 상태와 공개 포트 매핑을 확인하기 위해 `sudo docker ps`를 실행한다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ sudo docker ps
+CONTAINER ID   IMAGE          COMMAND                  CREATED          STATUS          PORTS                                 NAMES
+3a5ae8a1a592   nginx:stable   "/docker-entrypoint.…"   18 seconds ago   Up 17 seconds   0.0.0.0:80->80/tcp, [::]:80->80/tcp   web-lab-nginx
+```
+
+EC2의 80번 포트를 통해 웹페이지가 제공되는지 확인하기 위해 localhost로 HTTP 요청을 보낸다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ curl -i http://localhost
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Fri, 06 Nov 2026 03:01:04 GMT
+Content-Type: text/html
+Content-Length: 197
+Last-Modified: Fri, 06 Nov 2026 02:38:38 GMT
+Connection: keep-alive
+ETag: "6aed3dae-c5"
+Accept-Ranges: bytes
+
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>AWS Web Lab</title>
+</head>
+<body>
+  <h1>Hello Cloud</h1>
+  <p>Docker Nginx로 서비스 중입니다.</p>
+</body>
+</html>
+```
+
+헬스체크 경로가 HTTP 200과 고정 응답 `OK`를 반환하는지 확인한다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ curl -i http://localhost/health
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Fri, 06 Nov 2026 03:01:21 GMT
+Content-Type: application/octet-stream
+Content-Length: 3
+Last-Modified: Fri, 06 Nov 2026 02:40:00 GMT
+Connection: keep-alive
+ETag: "6aed3e00-3"
+Accept-Ranges: bytes
+
+OK
+```
+
+EC2에서 인터넷으로 아웃바운드 HTTPS 통신이 가능한지 확인하기 위해 외부 사이트의 응답 헤더를 조회한다.
+
+```text
+ubuntu@ip-10-0-1-117:~$ curl -I https://example.com
+HTTP/2 200
+date: Fri, 06 Nov 2026 03:01:52 GMT
+content-type: text/html; charset=utf-8
+server: cloudflare
+last-modified: Wed, 04 Nov 2026 18:12:44 GMT
+allow: GET, HEAD
+accept-ranges: bytes
+age: 13483
+cf-cache-status: HIT
+cf-ray: a560db2dbd780fff-ICN
+alt-svc: h3=":443"; ma=86400
+```
+
+| 검증 | 실제 확인 결과 | 확인 시각 (KST) |
+|---|---|---|
+| 컨테이너 실행 | `Up 17 seconds`, `0.0.0.0:80->80/tcp`, `[::]:80->80/tcp` | 로그에 시각 없음 |
+| 웹페이지 | `HTTP/1.1 200 OK`, `Hello Cloud` HTML 반환 | 2026-11-06 12:01:04 |
+| 내부 `/health` | `HTTP/1.1 200 OK`, 본문 `OK` | 2026-11-06 12:01:21 |
+| 외부 HTTPS 아웃바운드 | `HTTP/2 200` | 2026-11-06 12:01:52 |
+
+## STEP 2. 외부 iMac에서 검증 (제출 방식 B)
+
+외부에서 서비스에 접속할 수 있는지 확인하기 위해 EC2의 SSH 세션과 별개인 **외부 iMac 터미널**에서 공인 IP의 `/health`로 요청을 보낸다.
+
+```text
+Last login: Fri Nov  6 10:53:54 on ttys002
+thinkover20221658@c4r6s1 ~ % curl -i http://54.180.230.112/health
+HTTP/1.1 200 OK
+Server: nginx/1.30.6
+Date: Fri, 06 Nov 2026 03:03:16 GMT
+Content-Type: application/octet-stream
+Content-Length: 3
+Last-Modified: Fri, 06 Nov 2026 02:40:00 GMT
+Connection: keep-alive
+ETag: "6aed3e00-3"
+Accept-Ranges: bytes
+
+OK
+thinkover20221658@c4r6s1 ~ %
+```
 
 | 항목 | 실제 확인 결과 |
 |---|---|
-| 검증 방식 | B: `GET /health` (예정) |
-| EC2 Public IPv4 | 미확인 |
-| 공개 URL | 미확인 |
-| Nginx 상태 | 미검증 |
-| `curl -i http://localhost` | 미검증 |
-| `curl -I https://example.com` | 미검증 |
-| 외부 `curl -i http://<PUBLIC_IP>/health` | 미검증 |
-| 검증 일시 (KST) | 미기록 |
+| 검증 방식 | **B: GET /health** |
+| EC2 Public IPv4 | `54.180.230.112` |
+| 공개 URL | `http://54.180.230.112/health` |
+| 외부 접속 결과 | `200 OK`, 고정 응답 `OK` |
+| 외부 검증 일시 | 2026-11-06 12:03:16 KST (응답 Date의 GMT를 변환) |
 
-> EC2를 삭제하면 URL은 더 이상 접속되지 않는다. 삭제 전에 외부 접속 증빙을 확보한다.
+- [x] SSH 접속 성공
+- [x] Docker 서비스 및 Nginx 컨테이너 실행 확인
+- [x] localhost 웹페이지 HTTP 200 확인
+- [x] EC2 내부 `/health` HTTP 200 및 OK 확인
+- [x] EC2 아웃바운드 HTTPS HTTP 200 확인
+- [x] 외부 iMac `/health` HTTP 200 및 OK 확인
+
+실행 및 접속 증빙은 위 컨테이너 실행 로그, 내부 검증 결과 표, 외부 HTTP 응답 로그로 제시한다. 스크린샷은 별도로 제출하지 않는다. 원문 과제의 스크린샷 제출 조건은 이 문서에서 로그 증빙으로 대체했다.
+
+> 검증 결과는 위 시점의 기록이다. EC2 종료/삭제나 공인 IP 변경 후에는 같은 URL로 접속할 수 없을 수 있다. 리소스 정리 전에 증빙을 확보한다.
 
 # 11. 제출 산출물 만들기
 
-과제의 필수 제출 파일은 다음과 같다. 현재 없는 파일을 실제로 만들기 전까지는 완료로 표시하지 않는다.
+실행 및 접속 증빙을 README의 로그로 제시하며, 나머지 제출 파일은 다음과 같다. 현재 없는 파일을 실제로 만들기 전까지는 완료로 표시하지 않는다.
 
 ```text
 README.md
 docs/architecture.png
 docs/troubleshooting.md
 docs/cleanup-checklist.md
-images/12-external-health.png
 ```
 
 ## 11-1. 아키텍처 다이어그램
 
-`docs/architecture.png`에는 아래 요소와 HTTP 요청 흐름을 포함한다.
+2026-11-06 검증 시점의 구성이다. 실선은 요청 흐름을, 점선은 설정 연결 및 파일 마운트를 나타낸다. Security Group과 Route Table은 중계 서버가 아닌 접근 제어·라우팅 설정이다.
 
-```text
-외부 사용자 --HTTP 80--> Internet
-                                |
-                                v
-                          Internet Gateway
-                                |
-     +------ VPC 10.0.0.0/16 ---+------------------------+
-     |                                                   |
-     | Route Table: 0.0.0.0/0 -> IGW                     |
-     |  +----- Public Subnet 10.0.1.0/24 --------------+  |
-     |  |                                             |  |
-     |  | EC2 (Public IPv4, Nginx, HTTP 80)           |  |
-     |  | SG: HTTP 80 = 0.0.0.0/0                     |  |
-     |  |     SSH 22 = 내 공인 IP/32                   |  |
-     |  +---------------------------------------------+  |
-     +---------------------------------------------------+
+```mermaid
+---
+config:
+  theme: base
+  flowchart:
+    nodeSpacing: 55
+    rankSpacing: 65
+    padding: 20
+    wrappingWidth: 420
+    htmlLabels: false
+    subGraphTitleMargin:
+      top: 15
+      bottom: 35
+  themeVariables:
+    fontFamily: Arial, sans-serif
+    primaryColor: '#e8f0fe'
+    primaryTextColor: '#172b4d'
+    lineColor: '#52677e'
+---
+flowchart TB
+    user["외부 사용자 / iMac"]
+    admin["관리자 Mac · 내 공인 IP"]
+    subgraph aws["AWS · ap-northeast-2"]
+        subgraph vpc["VPC · 10.0.0.0/16"]
+            igw["Internet Gateway · web-lab-igw"]
+            rt["Route Table · web-lab-public-rt<br/>10.0.0.0/16 → local<br/>0.0.0.0/0 → IGW"]
+            sg["Security Group · web-lab-sg<br/>HTTP 80: 0.0.0.0/0<br/>SSH 22: 내 공인 IP/32"]
+            subgraph subnet["Public Subnet"]
+                subnetinfo["web-lab-public-subnet<br/>CIDR: 10.0.1.0/24<br/>AZ: ap-northeast-2a"]
+                subgraph ec2["EC2 · web-lab-ec2"]
+                    host["Ubuntu 24.04.5 LTS<br/>Public IP: 54.180.230.112<br/>Private IP: 10.0.1.117<br/>호스트 TCP 80"]
+                    nginx["Docker · web-lab-nginx<br/>nginx:stable · TCP 80<br/>GET /health → 200 OK / OK"]
+                    files["EC2 웹페이지 폴더<br/>/home/ubuntu/web-lab/html"]
+                    root["컨테이너 웹 루트<br/>/usr/share/nginx/html"]
+                    host -->|"포트 매핑 80:80"| nginx
+                    nginx --- root
+                    files -.->|"Bind Mount · readonly"| root
+                end
+            end
+            igw -->|"HTTP 80 / SSH 22"| host
+            rt -.->|"명시적 서브넷 연결"| subnetinfo
+            subnetinfo ~~~ host
+            sg -.->|"EC2 네트워크 접근 제어"| host
+        end
+    end
+    user -->|"HTTP · TCP 80"| aws
+    admin -->|"SSH · TCP 22"| aws
+    classDef network fill:#e8f0fe,stroke:#4285f4,color:#172b4d
+    classDef compute fill:#fff3e0,stroke:#f59e0b,color:#663c00
+    classDef security fill:#fce8e6,stroke:#d93025,color:#7f1d1d
+    classDef storage fill:#e6f4ea,stroke:#34a853,color:#14532d
+    class igw,rt,subnetinfo network
+    class host,nginx compute
+    class sg security
+    class files,root storage
 ```
 
-이 그림은 **논리적 구성도**이다. Route Table과 SG는 물리적인 중간 장비가 아니라 각각 라우팅 설정과 EC2 네트워크 접근 규칙을 나타낸다. draw.io 등으로 PNG로 만들어 제출한다.
+PNG 제출 파일: [architecture.png](docs/architecture.png) · 편집 원본: [architecture.mmd](docs/architecture.mmd)
+
 
 ## 11-2. 트러블슈팅 기록
 
-`docs/troubleshooting.md`에 본인이 실제 경험한 문제 1건 이상을 **증상 → 가설 → 검증 → 조치 → 결과 → 재발 방지** 순서로 기록한다.
+[트러블슈팅 보고서](docs/troubleshooting.md)에 SSH 개인 키 권한 오류를 **증상 → 가설 → 검증 → 조치 → 결과 → 재발 방지** 순서로 기록했다. 권한을 `0644`에서 `0400`으로 변경한 후 SSH 접속에 성공한 로그를 포함한다.
 
-기록 예시: `ec2:AssociateVpcCidrBlock` 권한 부족으로 CIDR 추가 실패. 하지만 실제 검증 결과 및 최종 조치는 본인이 수행한 내용에 맞춰 작성한다. 다른 VPC를 새로 만든 것은 기존 기본 CIDR을 변경하는 것과 다르다는 점도 명확히 구분한다.
+두 번째 사례로 EC2 네트워크 설정의 `ec2:GetSecurityGroupsForVpc` 경고와 `web-lab-user`의 `iam:ListPolicies` 접근 거부를 추가했다. `images/problem01.png`, `images/problem02.png`를 근거로 원인과 권장 조치를 기록했으며, 루트 계정으로 로그인해 정책에 `ec2:GetSecurityGroupsForVpc`를 추가한 후 보안 그룹 권한 문제가 해결된 실제 조치를 기록했다. `iam:ListPolicies` 권한을 추가한 것으로 기록하지 않았으며, 루트 계정 사용은 과제 조건과 다른 수행 이력임을 보고서에 명시했다.
+
+보고서 파일명은 과제 최소 규격인 `docs/troubleshooting.md`를 사용한다.
 
 ## 11-3. IAM 최소 권한 검토
 
@@ -422,4 +641,11 @@ images/12-external-health.png
 
 # 13. 다음 단계 실행 요약
 
-**지금 바로 할 일: 4번 Public Subnet 생성부터 시작.** 진행할 때 AWS 화면 캡처를 보내주면 설정값을 확인하고, 실제 촬영한 스크린샷을 `images/`에 올린 뒤 README의 해당 이미지 링크를 연결하면 된다. 이 문서에서 **체크되지 않은 항목은 미완료/미검증**을 의미한다.
+서비스 배포와 내부·외부 통신 검증은 성공했다. 남은 작업은 제출 증빙 완성과 리소스 정리다.
+
+아키텍처 다이어그램은 `docs/architecture.mmd`와 `docs/architecture.png`로 작성했다.
+
+1. **IAM 실제 적용 권한 검토** → 실습 사용자/Role의 연결 정책과 관리자 권한 미부여 여부를 확인한다.
+2. **정리 체크리스트 작성 및 실행** → `docs/cleanup-checklist.md`를 작성하고, 증빙 확보 후 12번 절차에 따라 실제 삭제 결과와 확인 시각을 기록한다.
+
+체크되지 않은 항목은 미완료/미검증이다. Docker 컨테이너 중지만으로 AWS 리소스 정리가 완료되는 것은 아니므로 EC2와 관련 리소스의 종료·삭제까지 확인한다.

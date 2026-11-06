@@ -1,0 +1,54 @@
+---
+config:
+  theme: base
+  flowchart:
+    nodeSpacing: 55
+    rankSpacing: 65
+    padding: 20
+    wrappingWidth: 420
+    htmlLabels: false
+    subGraphTitleMargin:
+      top: 15
+      bottom: 35
+  themeVariables:
+    fontFamily: Arial, sans-serif
+    primaryColor: '#e8f0fe'
+    primaryTextColor: '#172b4d'
+    lineColor: '#52677e'
+---
+flowchart TB
+    user["외부 사용자 / iMac"]
+    admin["관리자 Mac · 내 공인 IP"]
+    subgraph aws["AWS · ap-northeast-2"]
+        subgraph vpc["VPC · 10.0.0.0/16"]
+            igw["Internet Gateway · web-lab-igw"]
+            rt["Route Table · web-lab-public-rt<br/>10.0.0.0/16 → local<br/>0.0.0.0/0 → IGW"]
+            sg["Security Group · web-lab-sg<br/>HTTP 80: 0.0.0.0/0<br/>SSH 22: 내 공인 IP/32"]
+            subgraph subnet["Public Subnet"]
+                subnetinfo["web-lab-public-subnet<br/>CIDR: 10.0.1.0/24<br/>AZ: ap-northeast-2a"]
+                subgraph ec2["EC2 · web-lab-ec2"]
+                    host["Ubuntu 24.04.5 LTS<br/>Public IP: 54.180.230.112<br/>Private IP: 10.0.1.117<br/>호스트 TCP 80"]
+                    nginx["Docker · web-lab-nginx<br/>nginx:stable · TCP 80<br/>GET /health → 200 OK / OK"]
+                    files["EC2 웹페이지 폴더<br/>/home/ubuntu/web-lab/html"]
+                    root["컨테이너 웹 루트<br/>/usr/share/nginx/html"]
+                    host -->|"포트 매핑 80:80"| nginx
+                    nginx --- root
+                    files -.->|"Bind Mount · readonly"| root
+                end
+            end
+            igw -->|"HTTP 80 / SSH 22"| host
+            rt -.->|"명시적 서브넷 연결"| subnetinfo
+            subnetinfo ~~~ host
+            sg -.->|"EC2 네트워크 접근 제어"| host
+        end
+    end
+    user -->|"HTTP · TCP 80"| aws
+    admin -->|"SSH · TCP 22"| aws
+    classDef network fill:#e8f0fe,stroke:#4285f4,color:#172b4d
+    classDef compute fill:#fff3e0,stroke:#f59e0b,color:#663c00
+    classDef security fill:#fce8e6,stroke:#d93025,color:#7f1d1d
+    classDef storage fill:#e6f4ea,stroke:#34a853,color:#14532d
+    class igw,rt,subnetinfo network
+    class host,nginx compute
+    class sg security
+    class files,root storage
