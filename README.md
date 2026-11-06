@@ -1,6 +1,6 @@
 # AWS 웹 서비스 배포 실습
 
-서울 리전(`ap-northeast-2`)의 Public Subnet에 EC2를 배치하고, Docker Nginx로 정적 웹페이지를 배포했다. **외부 접속 검증 방식은 B(`GET /health`)**이며, 2026-11-06 12:03:16 KST에 외부 iMac에서 `200 OK`와 본문 `OK`를 확인했다. 아래 결과는 직접 수행하여 제공한 터미널 로그를 기준으로 기록했다. 실행 및 접속 증빙은 터미널 로그로 기록하며, 아키텍처 다이어그램은 Mermaid와 PNG로 작성했으며, IAM 권한 검토와 리소스 정리는 남아 있다.
+서울 리전(`ap-northeast-2`)의 Public Subnet에 EC2를 배치하고, Docker Nginx로 정적 웹페이지를 배포했다. **외부 접속 검증 방식은 B(`GET /health`)**이며, 2026-11-06 12:03:16 KST에 외부 iMac에서 `200 OK`와 본문 `OK`를 확인했다. 아래 결과는 직접 수행하여 제공한 터미널 로그를 기준으로 기록했다. 실행 및 접속 증빙은 터미널 로그로 기록하며, 아키텍처 다이어그램은 Mermaid와 PNG로 작성했으며, 주요 실습 리소스는 EC2부터 VPC까지 정리했다. 상세 완료 근거와 추가 확인 항목은 12~13번에 기록했다.
 
 # 1. IAM->정책->정책생성
 정책 편집기에서 (JSON으로 선택후) 아래내용 붙여넣음
@@ -613,7 +613,7 @@ PNG 제출 파일: [architecture.png](docs/architecture.png) · 편집 원본: [
 
 [트러블슈팅 보고서](docs/troubleshooting.md)에 SSH 개인 키 권한 오류를 **증상 → 가설 → 검증 → 조치 → 결과 → 재발 방지** 순서로 기록했다. 권한을 `0644`에서 `0400`으로 변경한 후 SSH 접속에 성공한 로그를 포함한다.
 
-두 번째 사례로 EC2 네트워크 설정의 `ec2:GetSecurityGroupsForVpc` 경고와 `web-lab-user`의 `iam:ListPolicies` 접근 거부를 추가했다. `images/problem01.png`, `images/problem02.png`를 근거로 원인과 권장 조치를 기록했으며, 루트 계정으로 로그인해 정책에 `ec2:GetSecurityGroupsForVpc`를 추가한 후 보안 그룹 권한 문제가 해결된 실제 조치를 기록했다. `iam:ListPolicies` 권한을 추가한 것으로 기록하지 않았으며, 루트 계정 사용은 과제 조건과 다른 수행 이력임을 보고서에 명시했다.
+두 번째 사례로 EC2 네트워크 설정의 `ec2:GetSecurityGroupsForVpc` 경고와 `web-lab-user`의 `iam:ListPolicies` 접근 거부를 추가했다. `images/problem01.png`, `images/problem02.png`를 근거로 원인과 권장 조치를 기록했으며, 루트 계정으로 로그인해 정책에 `ec2:GetSecurityGroupsForVpc`를 추가한 후 보안 그룹 권한 문제가 해결된 실제 조치를 기록했다. EC2/VPC 실습은 `web-lab-user`로 수행했고, IAM 정책 권한 보완 시에만 루트 계정을 사용했다. 실습 사용자에게 IAM 관리 권한을 추가하지 않았다.
 
 보고서 파일명은 과제 최소 규격인 `docs/troubleshooting.md`를 사용한다.
 
@@ -621,31 +621,112 @@ PNG 제출 파일: [architecture.png](docs/architecture.png) · 편집 원본: [
 
 현재 README의 IAM JSON은 서울 리전과 EC2 관련 API 작업을 제한하지만, `Resource: "*"`이므로 **리전 내 다른 리소스에도 허용 동작을 수행할 수 있는 초기 실습용 정책**이다. 과제의 엄격한 최소 권한을 충족한다고 단정하면 안 된다. 실제 정책에서 가능한 작업을 태그/리소스 ARN 등으로 추가 제한하고, 필요하지 않은 권한은 줄인다. 또한 운영하는 계정에 다른 정책이 부여되지 않았는지 확인한다.
 
-# 12. 실습 종료 후 리소스 정리 (필수)
+# 12. 실습 종료 후 리소스 정리
 
-**외부 접속 증빙을 확보한 후** 리소스를 정리한다. AWS 콘솔 리전이 **서울**인지 다시 확인한다. 우선 각 리소스 ID를 기록하고 삭제 결과를 `docs/cleanup-checklist.md`에 남긴다.
+외부 접속 검증 후 서울 리전(`ap-northeast-2`)의 실습 리소스를 아래 순서로 정리했다. 캡처는 **삭제 메뉴 선택 → 확인 팝업** 순서로 배치했다. EC2 종료 상태와 EBS·Elastic IP 잔존 없음은 화면으로 확인했으며, 나머지 네트워크 리소스는 VPC까지 삭제했다는 사용자 확인과 작업 캡처를 근거로 완료 기록을 남긴다. 개별 작업의 정확한 시각은 미기록이다.
 
-- [ ] EC2 `web-lab-ec2` **Terminate** 후 Terminated 확인 (Stop만으로는 부족)
-- [ ] EBS Volumes에서 실습 볼륨이 남았는지 확인 후 삭제
-- [ ] Elastic IP가 있으면 연결 해제 및 **Release** (미생성 시 '미생성')
-- [ ] 추가 생성한 NAT Gateway / ELB·ALB / RDS가 있으면 삭제 (없으면 '미생성')
-- [ ] 실습용 Security Group 삭제
-- [ ] 실습용 Route Table의 연결 해제 후 삭제
-- [ ] Internet Gateway를 VPC에서 **Detach**한 후 삭제
-- [ ] Public Subnet 삭제
-- [ ] **실습용** VPC 삭제 (기존 기본 VPC는 삭제하지 않음)
-- [ ] AWS의 실습용 Key Pair 정리 및 로컬 개인 키 안전하게 보관/삭제 결정
-- [ ] Billing Dashboard 확인 및 정리 결과/일시 기록
+제출용 요약: [리소스 정리 체크리스트](docs/cleanup-checklist.md)
 
-**삭제 시 유의사항:** 리소스 간 의존성이 있어 일부 삭제 작업이 차단될 수 있다. 삭제 오류 메시지가 발생하면 연결 리소스를 먼저 정리한다. 자동 할당 퍼블릭 IPv4, EBS 등은 계정 혜택과 사용량에 따라 과금될 수 있다. 삭제 이후에도 청구 내역의 반영에는 시간이 걸릴 수 있으므로 '요금 0원'을 추정해 기재하지 않는다.
+## 12-1. EC2 인스턴스 종료
 
-# 13. 다음 단계 실행 요약
+`web-lab-ec2` (`i-0490197b568459dd8`)를 선택해 **인스턴스 상태 → 인스턴스 종료(삭제)**를 실행했다. 이후 목록에서 **종료됨(Terminated)** 상태를 확인했다. Stop이 아닌 Terminate로 정리했다.
 
-서비스 배포와 내부·외부 통신 검증은 성공했다. 남은 작업은 제출 증빙 완성과 리소스 정리다.
+**종료 메뉴 선택**
 
-아키텍처 다이어그램은 `docs/architecture.mmd`와 `docs/architecture.png`로 작성했다.
+![종료 메뉴 선택](images/12-instance-terminate_remove.png)
 
-1. **IAM 실제 적용 권한 검토** → 실습 사용자/Role의 연결 정책과 관리자 권한 미부여 여부를 확인한다.
-2. **정리 체크리스트 작성 및 실행** → `docs/cleanup-checklist.md`를 작성하고, 증빙 확보 후 12번 절차에 따라 실제 삭제 결과와 확인 시각을 기록한다.
+**종료 완료 확인**
 
-체크되지 않은 항목은 미완료/미검증이다. Docker 컨테이너 중지만으로 AWS 리소스 정리가 완료되는 것은 아니므로 EC2와 관련 리소스의 종료·삭제까지 확인한다.
+![종료 완료 확인](images/12-instance-terminated_result.png)
+
+## 12-2. EBS 볼륨 잔존 확인
+
+EC2 종료 후 EBS 볼륨 목록에서 **현재 이 리전에 볼륨이 없습니다**를 확인했다. 남아 있는 볼륨이 없어 추가 삭제 대상이 없었다.
+
+**EBS 볼륨 잔존 없음**
+
+![EBS 볼륨 잔존 없음](images/12-elasticBlockStore-check.png)
+
+## 12-3. Elastic IP 잔존 확인
+
+탄력적 IP 목록에서 **이 리전에서 탄력적 IP 주소를 찾을 수 없음**을 확인했다. 별도로 릴리스할 주소가 남아 있지 않았다.
+
+**Elastic IP 잔존 없음**
+
+![Elastic IP 잔존 없음](images/12-elasticIP-check.png)
+
+## 12-4. Public Subnet 삭제
+
+`web-lab-public-subnet` (`subnet-0c1774cc3cf2af370`) 선택 → **작업 → 서브넷 삭제** → 확인 팝업에서 `삭제` 입력 후 삭제를 진행했다.
+
+팝업에는 `ram:GetResourceShareAssociations` 권한 부족으로 **리소스 공유 정보를 로드하지 못했다**는 경고가 표시되었다. 이는 삭제 완료 메시지가 아니며, 해당 권한을 추가했다는 기록은 없다. 서브넷을 포함한 VPC 정리 완료는 사용자 확인을 근거로 기록한다.
+
+**서브넷 삭제 메뉴**
+
+![서브넷 삭제 메뉴](images/12-vpc-subnet-remove.png)
+
+**서브넷 삭제 확인 팝업**
+
+![서브넷 삭제 확인 팝업](images/12-vpc-subnet-remove_popup.png)
+
+## 12-5. Route Table 삭제
+
+삭제 메뉴와 확인 팝업에서 사용자 생성 테이블 `web-lab-public-rt` (`rtb-01d574886538f56d6`)를 삭제 대상으로 확인했다. 함께 선택된 기본 테이블 `rtb-02c02bec3484cc78e`는 개별 삭제할 수 없다는 안내가 나타났다. 사용자 생성 테이블을 삭제하고 기본 테이블은 VPC 삭제 시 함께 정리하는 순서로 진행했다.
+
+**라우팅 테이블 삭제 메뉴**
+
+![라우팅 테이블 삭제 메뉴](images/12-vpc-routingTable-remove.png)
+
+**삭제 가능 테이블과 기본 테이블 구분**
+
+![삭제 가능 테이블과 기본 테이블 구분](images/12-vpc-routingTable-remove_popup.png)
+
+## 12-6. Security Group 삭제
+
+`web-lab-sg` (`sg-0ab95537414997679`)를 삭제했다. 팝업에서 해당 그룹은 **연결된 리소스 없음 / 삭제될 예정**으로 표시되었다. 함께 선택된 기본 그룹 `sg-0663596cac84f2c43`은 개별 삭제 대상에서 제외되며, VPC 삭제 시 함께 정리된다.
+
+**보안 그룹 삭제 메뉴**
+
+![보안 그룹 삭제 메뉴](images/12-vpc-securityGroup-remove.png)
+
+**실습 그룹과 기본 그룹의 삭제 가능 여부**
+
+![실습 그룹과 기본 그룹의 삭제 가능 여부](images/12-vpc-securityGroup-remove_popup.png)
+
+## 12-7. Internet Gateway 분리 및 삭제
+
+`web-lab-igw` (`igw-0b643cdd8ed2935a5`) 선택 → **VPC에서 분리** → 팝업에서 `분리` 입력 후 실행했다. 이후 목록에서 **Detached** 상태를 확인하고, 삭제 메뉴 → 확인 팝업 순서로 삭제했다.
+
+**IGW 분리 메뉴**
+
+![IGW 분리 메뉴](images/12-vpc-igw-detach.png)
+
+**IGW 분리 확인 팝업**
+
+![IGW 분리 확인 팝업](images/12-vpc-igw-detach-popup.png)
+
+**Detached 확인 및 삭제 메뉴**
+
+![Detached 확인 및 삭제 메뉴](images/12-vcp-igw-remove.png)
+
+**IGW 삭제 확인 팝업**
+
+![IGW 삭제 확인 팝업](images/12-vcp-igw-remove_popup.png)
+
+## 12-8. VPC 삭제
+
+마지막으로 `web-lab-vpc` (`vpc-0c62583f604f44241`) 선택 → **작업 → VPC 삭제** → 팝업에서 `삭제` 입력 후 삭제를 완료했다. 삭제 완료는 사용자 확인을 근거로 기록하며, 첨부 팝업은 최종 실행 전 확인 화면이다.
+
+**VPC 삭제 메뉴**
+
+![VPC 삭제 메뉴](images/12-vpc-vpc-remove.png)
+
+**VPC 삭제 확인 팝업**
+
+![VPC 삭제 확인 팝업](images/12-vpc-vpc-remove_popup.png)
+
+# 13. 최종 진행 상태
+
+웹 서비스 배포, 내부·외부 통신 검증, 아키텍처 다이어그램, 트러블슈팅 보고서와 주요 리소스 정리 기록을 작성했다. EC2 종료 및 VPC 삭제로 기존 공개 URL은 더 이상 실습 서비스의 접속 주소로 사용하지 않는다.
+
+주요 정리 결과와 근거는 [리소스 정리 체크리스트](docs/cleanup-checklist.md)에 기록했다.

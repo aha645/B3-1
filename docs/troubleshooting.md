@@ -118,7 +118,7 @@ Codename:	noble
 
 ### 조치
 
-루트 계정으로 로그인하여 `web-lab-user`에 적용된 정책의 EC2 조회용 `Action` 목록에 `ec2:GetSecurityGroupsForVpc`를 추가했다. 수정 후 목록은 다음과 같다.
+EC2/VPC 실습은 `web-lab-user`로 수행했다. 이 사용자는 EC2 관련 권한으로 제한되어 IAM 정책을 조회·수정할 수 없었으므로, 정책 권한 보완 시에만 루트 계정으로 로그인하여 EC2 조회용 `Action` 목록에 `ec2:GetSecurityGroupsForVpc`를 추가했다. 수정 후 목록은 다음과 같다.
 
 ```json
 "Action": [
